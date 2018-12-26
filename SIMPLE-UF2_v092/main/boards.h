@@ -112,3 +112,15 @@
 #ifdef R4S
 #define ONBOARD_LED 17
 #endif
+
+#ifdef GENERIC_TRINKET_DONGLE_CAPACITIVE_BUTTONS
+#define DOTSTAR_ENABLED 1
+#define PAYLOAD_INCREASE_PIN 1     // Payload increase pin - touch to ground by default.
+#define MODE_CHANGE_PIN 4
+#define ONBOARD_LED 13
+#endif
+
+#ifdef GENERIC_TRINKET_DONGLE_NO_BUTTONS
+#define DOTSTAR_ENABLED 1
+#define ONBOARD_LED 13
+#endif
