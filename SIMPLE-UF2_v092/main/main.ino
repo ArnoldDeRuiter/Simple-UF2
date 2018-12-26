@@ -14,7 +14,7 @@
 
 //////////////////////////////////////////////////////////////////////////////////////////BOARDS
 // uncomment your chip and comment the others. Will build!!!
-//#define TRINKET_REBUG
+#define TRINKET_REBUG
 //#define TRINKETMETHOD3
 //#define TRINKETLEGACY3
 //#define GEMMA
