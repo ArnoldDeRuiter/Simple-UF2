@@ -23,7 +23,7 @@
 //#define RCMX86_INTERNAL
 //#define RCMX86
 //#define R4S
-//#define GENERIC_TRINKET_DONGLE_CAPACITIVE_BUTTONS
+//#define GENERIC_TRINKET_DONGLE
 //#define GENERIC_TRINKET_DONGLE_NO_BUTTONS
 //////////////////////////////////////////////////////////////////////////////////////////======
 

@@ -113,7 +113,7 @@
 #define ONBOARD_LED 17
 #endif
 
-#ifdef GENERIC_TRINKET_DONGLE_CAPACITIVE_BUTTONS
+#ifdef GENERIC_TRINKET_DONGLE
 #define DOTSTAR_ENABLED 1
 #define PAYLOAD_INCREASE_PIN 1     // Payload increase pin - touch to ground by default.
 #define MODE_CHANGE_PIN 4
