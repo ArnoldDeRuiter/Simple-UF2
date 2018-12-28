@@ -94,7 +94,6 @@ void dropstraps() {
 }
 
 void normalstraps() {
-  #ifdef MODCHIP
   #ifdef JOYCON_STRAP_PIN
   pinMode(JOYCON_STRAP_PIN, INPUT);
   #endif
@@ -109,7 +108,6 @@ void normalstraps() {
   #endif
   #ifdef PAYLOAD_INCREASE_PIN
   pinMode(PAYLOAD_INCREASE_PIN, INPUT_PULLUP);
-  #endif
   #endif
 
   #ifdef RCMX86
