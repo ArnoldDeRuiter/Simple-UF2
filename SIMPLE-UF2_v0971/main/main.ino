@@ -8,9 +8,13 @@
 #include <Adafruit_DotStar.h>
 #endif
 //////////////////////////////////////////////////////////////////////////////////////////WHAT IS YOUR DEVICE???
-#define DEFAULT_MODE 1 ///////////////////////////////////////////////////////////////////CHANGE THIS TO YOUR LIKING!!! ADD MODES IN MODES.H
-#define MODCHIP
-//#define DONGLE
+#define MODCHIP // Looks for RCM for 2 seconds. Change in BOARDS.H
+//#define DONGLE // Looks for RCM for 20 seconds. Change in BOARDS.H
+///////////////////////////////////////////////////////////////////CHANGE THIS TO YOUR LIKING!!!
+#define DEFAULT_MODE 3
+#define MODES_AVAILABLE 1
+#define BLINK_PAYLOAD_BEFORE_SEARCH 0
+#define BLINK_PAYLOAD_AFTER_SEARCH 0
 
 //////////////////////////////////////////////////////////////////////////////////////////BOARDS
 // uncomment your chip and comment the others. Will build!!!
@@ -26,18 +30,18 @@
 //#define R4S
 //#define GENERIC_TRINKET_DONGLE
 //#define GENERIC_GEMMA_DONGLE
-//#define DRAGONINJECTOR ** incomplete
+//#define DRAGONINJECTOR
 //////////////////////////////////////////////////////////////////////////////////////////======
 
 //Globals
 #define MODESWITCH_ENABLED 1 // Enables / Disables modeswitch. If disabled, default values used in modes. 1 = modeswitch enabled, 0 = pin 4 will reset SAMD upon being grounded
 #define AUTO_SEND_ON_PAYLOAD_INCREASE_PIN 0  //Automatic send when payload pin is activated. 1 = on, 0 = off
-#define LOOK_FOR_TEGRA_LED_SPEED 500 //How fast to blink when searching.
+#define LOOK_FOR_TEGRA_LED_SPEED 100 //How fast to blink when searching. Higher = slower
 //set LED on/off times
 #define PAYLOAD_FLASH_LED_ON_TIME_SECONDS 0.05 // controls blink during payload indication. On
-#define PAYLOAD_FLASH_LED_OFF_TIME_SECONDS 0.3 // as above, but amount of time for DARKNESS ;)
+#define PAYLOAD_FLASH_LED_OFF_TIME_SECONDS 0.4 // as above, but amount of time for DARKNESS ;)
+#define DELAY_BEFORE_BLINKING_PAYLOAD 1000000
 #define STATUS_LED_TIME_us 1000000 // How long to show red or green light for success or fail - 1 second
-
 //set time to hold straps low for to enter RCM.
 #define RCM_STRAP_TIME_us 1000000  // Amount of time to hold RCM_STRAP low and then launch payload
 
@@ -58,15 +62,15 @@ uint32_t UNWRITTEN_MODE_NUMBER = WRITTEN_MODE_NUMBER;
 uint32_t INDICATED_ITEM;
 uint32_t AMOUNT_OF_PAYLOADS;
 uint32_t AUTO_INCREASE_PAYLOAD_on;
-uint32_t FLASH_BEFORE_SEND_on;
-uint32_t FLASH_AFTER_SEND_on;
 uint32_t VOLUP_HELD;
 uint32_t SELECTED;
 uint32_t CURRENT_FLASH;
+unsigned long battvalue;
 unsigned long i;
 unsigned long MASTER_VOLUP_TIMER = 5000;
 unsigned long LONG_PRESS_TRIGGER = 5000;
 unsigned long VOL_TICK_TIMER = 0;
+bool flatbatt = false;
 
 //includes
 #include "hkpart1.h"
@@ -78,11 +82,47 @@ unsigned long VOL_TICK_TIMER = 0;
 #include "boards.h"
 #include "usb_setup.h"
 
+void battery_check() {
+#ifdef DRAGONINJECTOR
+  pinMode (REDLED, OUTPUT);
+  pinMode (GREENLED, OUTPUT);
+  pinMode (BLUELED, OUTPUT);
+  digitalWrite(REDLED, HIGH);
+  digitalWrite(GREENLED, HIGH);
+  digitalWrite(BLUELED, HIGH);
+  //pinMode (BATTERY_LEVEL_CHECK, INPUT);
+  delayMicroseconds(100000);// allow to stabilise
+  battvalue = analogRead (BATTERY_LEVEL_CHECK);
+  //battvalue = 876;
+  if (battvalue > 900) {
+    digitalWrite(GREENLED, LOW);
+    flatbatt = false;
+  } else if (battvalue > 860 && battvalue < 899) {
+    digitalWrite(REDLED, LOW);
+    digitalWrite(GREENLED, LOW);
+    flatbatt = false;
+  } else if (battvalue < 859) {
+    digitalWrite(REDLED, LOW);
+    flatbatt = true;
+  }
+  delayMicroseconds(1000000);
+  digitalWrite(REDLED, HIGH);
+  digitalWrite(GREENLED, HIGH);
+  digitalWrite(BLUELED, HIGH);
+  if (!flatbatt) {
+    return;
+  } else sleep(-1);
+#endif
+}
+
 void long_press() {
 #ifdef VOLUP_STRAP_PIN
   while (VOL_TICK_TIMER < MASTER_VOLUP_TIMER) {
     VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
     if (VOLUP_HELD == LOW) {
+      #ifdef DRAGONINJECTOR
+      digitalWrite(BLUELED, LOW);
+      #endif
       ++VOL_TICK_TIMER;
       delayMicroseconds(1000);
     } else {
@@ -91,7 +131,7 @@ void long_press() {
     }
     if (VOL_TICK_TIMER == LONG_PRESS_TRIGGER) {
       //VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
-      confirm_led(15);
+      confirm_led(10);
       cycle_payloads();
     }
 
@@ -104,14 +144,20 @@ void cycle_payloads() {
   for (INDICATED_ITEM = 0; INDICATED_ITEM < AMOUNT_OF_PAYLOADS; ++INDICATED_ITEM) {
     for (CURRENT_FLASH = 0; CURRENT_FLASH < (INDICATED_ITEM + 1) ; ++CURRENT_FLASH) {
       setLedColor("black");
+      #ifdef ONBOARD_LED
       digitalWrite(ONBOARD_LED, LOW);
-      pauseVol_payload(20);
+      #endif
+      pauseVol_payload(30);
       setPayloadColor(INDICATED_ITEM + 1);
+      #ifdef ONBOARD_LED
       digitalWrite(ONBOARD_LED, HIGH);
-      pauseVol_payload(5);
+      #endif
+      pauseVol_payload(10);
     }
     setLedColor("black");
+    #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, LOW);
+    #endif
     pauseVol_payload(100);
   }
   confirm_led(10);
@@ -119,22 +165,33 @@ void cycle_payloads() {
 }
 
 void cycle_modes() {
-  for (INDICATED_ITEM = 0; INDICATED_ITEM < 4; ++INDICATED_ITEM) {
+  if (MODES_AVAILABLE != 1){
+  for (INDICATED_ITEM = 0; INDICATED_ITEM < MODES_AVAILABLE; ++INDICATED_ITEM) {
     for (CURRENT_FLASH = 0; CURRENT_FLASH < (INDICATED_ITEM + 1) ; ++CURRENT_FLASH) {
       setLedColor("black");
+      #ifdef ONBOARD_LED
       digitalWrite(ONBOARD_LED, LOW);
-      pauseVol_mode(20);
+      #endif
+      pauseVol_mode(30);
       setPayloadColor(INDICATED_ITEM + 1);
+      #ifdef ONBOARD_LED
       digitalWrite(ONBOARD_LED, HIGH);
-      pauseVol_mode(5);
+      #endif
+      pauseVol_mode(10);
     }
     setLedColor("black");
+    #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, LOW);
+    #endif
     pauseVol_mode(100);
   }
-  confirm_led(5);
+  confirm_led(10);
   VOL_TICK_TIMER = 0;
   return;
+  } else {
+    VOL_TICK_TIMER = 0;
+  return;
+  }
 }
 
 void pauseVol_payload(int pausetime) {
@@ -151,7 +208,7 @@ void pauseVol_payload(int pausetime) {
       if (SELECTED != LOW) {
         NVIC_SystemReset();
       } else {
-        confirm_led(30);
+        confirm_led(10);
         delayMicroseconds(1000000);
         cycle_modes();
       }
@@ -207,7 +264,7 @@ void run_once() {
 void mode_change() {
   if (MODESWITCH_ENABLED == 1) {
     ++UNWRITTEN_MODE_NUMBER;
-    confirm_led(15);
+    confirm_led(10);
     mode_check();
     mode_payload_blink_led();
     if (UNWRITTEN_MODE_NUMBER == 2 || UNWRITTEN_MODE_NUMBER == 4) {
@@ -219,6 +276,15 @@ void mode_change() {
 }
 
 void normalstraps() {
+  #ifdef DRAGONINJECTOR
+  pinMode (VOLUP_STRAP_PIN, OUTPUT);
+  digitalWrite (VOLUP_STRAP_PIN, LOW);
+  delayMicroseconds (10);
+  pinMode (VOLUP_STRAP_PIN, INPUT_PULLUP);
+  if (digitalRead(VOLUP_STRAP_PIN) == LOW) {
+    long_press();
+  }
+#endif
 #ifdef JOYCON_STRAP_PIN
   pinMode(JOYCON_STRAP_PIN, INPUT);
 #endif
@@ -307,6 +373,37 @@ void setLedColor(const char color[]) {
   }
   strip.show();
 #endif
+#ifdef DRAGONINJECTOR
+pinMode (REDLED, OUTPUT);
+pinMode (GREENLED, OUTPUT);
+pinMode (BLUELED, OUTPUT);
+  if (color == "red") {
+    digitalWrite (REDLED, LOW);
+    digitalWrite (GREENLED, HIGH);
+    digitalWrite (BLUELED, HIGH);
+  } else if (color == "green") {
+    digitalWrite (REDLED, HIGH);
+    digitalWrite (GREENLED, LOW);
+    digitalWrite (BLUELED, HIGH);
+  } else if (color == "blue") {
+    digitalWrite (REDLED, HIGH);
+    digitalWrite (GREENLED, HIGH);
+    digitalWrite (BLUELED, LOW);
+  } else if (color == "yellow") {
+    digitalWrite (REDLED, LOW);
+    digitalWrite (GREENLED, LOW);
+    digitalWrite (BLUELED, HIGH);
+  } else if (color == "white") {
+    digitalWrite (REDLED, LOW);
+    digitalWrite (GREENLED, LOW);
+    digitalWrite (BLUELED, LOW);
+  } else if (color == "black") {
+    digitalWrite (REDLED, HIGH);
+    digitalWrite (GREENLED, HIGH);
+    digitalWrite (BLUELED, HIGH);
+  }
+
+#endif
 }
 
 void setPayloadColor(int payloadcolornumber) {
@@ -330,6 +427,44 @@ void setPayloadColor(int payloadcolornumber) {
   }
   strip.show();
 #endif
+#ifdef DRAGONINJECTOR
+pinMode (REDLED, OUTPUT);
+pinMode (GREENLED, OUTPUT);
+pinMode (BLUELED, OUTPUT);
+  if (payloadcolornumber == 1) {
+    digitalWrite (REDLED, HIGH);
+    digitalWrite (GREENLED, LOW);
+    digitalWrite (BLUELED, HIGH);
+  } else if (payloadcolornumber == 2) {
+    digitalWrite (REDLED, HIGH);
+    digitalWrite (GREENLED, HIGH);
+    digitalWrite (BLUELED, LOW);
+  } else if (payloadcolornumber == 3) {
+    digitalWrite (REDLED, LOW);
+    digitalWrite (GREENLED, LOW);
+    digitalWrite (BLUELED, HIGH);
+  } else if (payloadcolornumber == 4) {
+    digitalWrite (REDLED, LOW);
+    digitalWrite (GREENLED, HIGH);
+    digitalWrite (BLUELED, LOW);
+  } else if (payloadcolornumber == 5) {
+    digitalWrite (REDLED, HIGH);
+    digitalWrite (GREENLED, LOW);
+    digitalWrite (BLUELED, HIGH);
+  } else if (payloadcolornumber == 6) {
+    digitalWrite (REDLED, HIGH);
+    digitalWrite (GREENLED, HIGH);
+    digitalWrite (BLUELED, LOW);
+  } else if (payloadcolornumber == 7) {
+    digitalWrite (REDLED, LOW);
+    digitalWrite (GREENLED, LOW);
+    digitalWrite (BLUELED, HIGH);
+  } else if (payloadcolornumber == 8) {
+    digitalWrite (REDLED, LOW);
+    digitalWrite (GREENLED, HIGH);
+    digitalWrite (BLUELED, LOW);
+  }
+#endif
 }
 
 void wakeup() {
@@ -344,56 +479,79 @@ void wakeup_usb() {
 }
 
 void payload_blink_led() {
+  delayMicroseconds (DELAY_BEFORE_BLINKING_PAYLOAD);
   for (INDICATED_ITEM = 0; INDICATED_ITEM < UNWRITTEN_PAYLOAD_NUMBER; ++INDICATED_ITEM) {
     setLedColor("black");
+    #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, LOW);
+    #endif
     delayMicroseconds(PAYLOAD_FLASH_LED_OFF_TIME_SECONDS * 1000000);
     setPayloadColor(UNWRITTEN_PAYLOAD_NUMBER);
+    #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, HIGH);
+    #endif
     delayMicroseconds(PAYLOAD_FLASH_LED_ON_TIME_SECONDS * 1000000);
   }
   setLedColor("black");
+  #ifdef ONBOARD_LED
   digitalWrite(ONBOARD_LED, LOW);
+  #endif
   delayMicroseconds(PAYLOAD_FLASH_LED_OFF_TIME_SECONDS * 1000000);
 }
 
 void mode_payload_blink_led() {
+  #ifdef ONBOARD_LED
   pinMode(ONBOARD_LED, OUTPUT);
+  #endif
   for (INDICATED_ITEM = 0; INDICATED_ITEM < UNWRITTEN_MODE_NUMBER; ++INDICATED_ITEM) {
     setLedColor("black");
+    #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, LOW);
+    #endif
     delayMicroseconds(PAYLOAD_FLASH_LED_OFF_TIME_SECONDS * 1000000);
     setLedColor("white");
+    #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, HIGH);
+    #endif
     delayMicroseconds(PAYLOAD_FLASH_LED_ON_TIME_SECONDS * 1000000);
   }
   setLedColor("black");
+  #ifdef ONBOARD_LED
   digitalWrite(ONBOARD_LED, LOW);
+  #endif
   delayMicroseconds(PAYLOAD_FLASH_LED_OFF_TIME_SECONDS * 1000000);
 }
 
 void confirm_led(int confirmledlength) {
+  #ifdef ONBOARD_LED
   pinMode(ONBOARD_LED, OUTPUT);
+  #endif
   for (INDICATED_ITEM = 0; INDICATED_ITEM < confirmledlength; ++INDICATED_ITEM) {
     setLedColor("black");
+    #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, LOW);
+    #endif
     delayMicroseconds(30000);
     setLedColor("white");
+    #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, HIGH);
+    #endif
     delayMicroseconds(30000);
   }
   setLedColor("black");
+  #ifdef ONBOARD_LED
   digitalWrite(ONBOARD_LED, LOW);
+  #endif
   delayMicroseconds(PAYLOAD_FLASH_LED_OFF_TIME_SECONDS * 1000000);
 }
 //choose and flash LED
 void increase_payload() {
   ++UNWRITTEN_PAYLOAD_NUMBER;
-  confirm_led(15);
+  confirm_led(10);
   if (UNWRITTEN_PAYLOAD_NUMBER > AMOUNT_OF_PAYLOADS) {
     UNWRITTEN_PAYLOAD_NUMBER = 1;
   }
-  if (FLASH_BEFORE_SEND_on == 1) {
+  if (BLINK_PAYLOAD_BEFORE_SEARCH == 1) {
     payload_blink_led();
   }
   if (AUTO_SEND_ON_PAYLOAD_INCREASE_PIN == 1) {
@@ -424,7 +582,9 @@ void sleep(int errorCode) {
   //delay(100);
   //digitalWrite(PIN_LED_RXL, HIGH);
   //digitalWrite(PIN_LED_TXL, HIGH);
+  #ifdef ONBOARD_LED
   digitalWrite(ONBOARD_LED, LOW);
+  #endif
   if (errorCode == 1) {
     setLedColor("green");
     delayMicroseconds(STATUS_LED_TIME_us);
@@ -440,7 +600,7 @@ void sleep(int errorCode) {
     if (CHANGE_STORED_AUTOINCREASE_PAYLOAD_FLAG != STORED_AUTOINCREASE_PAYLOAD_FLAG)
       EEPROM_AUTOINCREASE_PAYLOAD.write(CHANGE_STORED_AUTOINCREASE_PAYLOAD_FLAG);
   }
-  if (FLASH_AFTER_SEND_on == 1) {
+  if (BLINK_PAYLOAD_AFTER_SEARCH == 1) {
     payload_blink_led();
   }
   standby();
@@ -479,7 +639,7 @@ void lookfortegra() {
 
   if (usbInitialized == -1) sleep(-1);
   DEBUG_PRINTLN("Ready! Waiting for Tegra...");
-  if (FLASH_BEFORE_SEND_on == 1) {
+  if (BLINK_PAYLOAD_BEFORE_SEARCH == 1) {
     payload_blink_led();
   }
 
@@ -494,15 +654,23 @@ void lookfortegra() {
       usb.ForEachUsbDevice(&findTegraDevice);
       if (blink && !foundTegra) {
         setPayloadColor(UNWRITTEN_PAYLOAD_NUMBER);
+        #ifdef ONBOARD_LED
         digitalWrite(ONBOARD_LED, HIGH);
+        #endif
       } else {
         setLedColor("black");
+        #ifdef ONBOARD_LED
         digitalWrite(ONBOARD_LED, LOW);
+        #endif
       }
       blink = !blink;
       lastCheckTime = currentTime;
     }
     if (currentTime > (LOOK_FOR_TEGRA_SECONDS * 1000)) {
+      setLedColor("black");
+        #ifdef ONBOARD_LED
+        digitalWrite(ONBOARD_LED, LOW);
+        #endif
       writetoflash();
       if (RESET_INSTEAD_OF_SLEEP == 1) {
         NVIC_SystemReset();
@@ -557,7 +725,10 @@ void pushpayload() {
 void setup()
 {
   usb.Task(); //host mode
+  #ifdef ONBOARD_LED
   pinMode(ONBOARD_LED, OUTPUT);
+  #endif
+  battery_check();
   normalstraps();
   run_once();
   setinterrupts();
