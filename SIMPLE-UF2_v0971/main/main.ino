@@ -18,7 +18,7 @@
 
 //////////////////////////////////////////////////////////////////////////////////////////BOARDS
 // uncomment your chip and comment the others. Will build!!!
-#define TRINKET_REBUG
+//#define TRINKET_REBUG
 //#define TRINKETMETHOD3
 //#define TRINKETLEGACY3
 //#define GEMMA
@@ -30,7 +30,7 @@
 //#define R4S
 //#define GENERIC_TRINKET_DONGLE
 //#define GENERIC_GEMMA_DONGLE
-//#define DRAGONINJECTOR
+#define DRAGONINJECTOR
 //////////////////////////////////////////////////////////////////////////////////////////======
 
 //Globals
@@ -90,18 +90,16 @@ void battery_check() {
   digitalWrite(REDLED, HIGH);
   digitalWrite(GREENLED, HIGH);
   digitalWrite(BLUELED, HIGH);
-  //pinMode (BATTERY_LEVEL_CHECK, INPUT);
   delayMicroseconds(100000);// allow to stabilise
   battvalue = analogRead (BATTERY_LEVEL_CHECK);
-  //battvalue = 876;
-  if (battvalue > 900) {
+  if (battvalue > GOODBATT) {
     digitalWrite(GREENLED, LOW);
     flatbatt = false;
-  } else if (battvalue > 860 && battvalue < 899) {
+  } else if (battvalue > FLATBATT && battvalue < (GOODBATT - 1)) {
     digitalWrite(REDLED, LOW);
     digitalWrite(GREENLED, LOW);
     flatbatt = false;
-  } else if (battvalue < 859) {
+  } else if (battvalue < (FLATBATT - 1)) {
     digitalWrite(REDLED, LOW);
     flatbatt = true;
   }
@@ -112,6 +110,54 @@ void battery_check() {
   if (!flatbatt) {
     return;
   } else sleep(-1);
+#endif
+}
+
+void normalstraps() {
+  #ifdef DRAGONINJECTOR
+  pinMode (VOLUP_STRAP_PIN, OUTPUT);
+  digitalWrite (VOLUP_STRAP_PIN, LOW);
+  delayMicroseconds (10);
+  pinMode (VOLUP_STRAP_PIN, INPUT_PULLUP);
+  if (digitalRead(VOLUP_STRAP_PIN) == LOW) {
+    long_press();
+  }
+#endif
+#ifdef JOYCON_STRAP_PIN
+  pinMode(JOYCON_STRAP_PIN, INPUT);
+#endif
+#ifdef VOLUP_STRAP_PIN
+  pinMode(VOLUP_STRAP_PIN, INPUT_PULLUP);
+#endif
+#ifdef WAKEUP_PIN_RISING
+  pinMode(WAKEUP_PIN_RISING, INPUT);
+#endif
+#ifdef MODE_CHANGE_PIN
+  pinMode(MODE_CHANGE_PIN, INPUT_PULLUP);
+#endif
+#ifdef PAYLOAD_INCREASE_PIN
+  pinMode(PAYLOAD_INCREASE_PIN, INPUT_PULLUP);
+#endif
+#ifdef USB_LOW_RESET
+  pinMode(USB_LOW_RESET, INPUT);
+#endif
+
+#ifdef RCMX86
+  pinMode(DCDC_EN_PIN, OUTPUT);
+  digitalWrite(DCDC_EN_PIN, HIGH);
+  pinMode(USBCC_PIN, INPUT);
+  pinMode(USB_VCC_PIN, INPUT_PULLDOWN);
+  pinMode(ONBOARD_LED, OUTPUT);
+
+  digitalWrite(ONBOARD_LED, LOW);
+  digitalWrite(ONBOARD_LED, HIGH); delay(30);
+  digitalWrite(ONBOARD_LED, LOW);
+  /*
+    delay(300);
+  */
+  while (digitalRead(USB_VCC_PIN));
+  delay(30);//delay to ready pull out
+  while (digitalRead(USB_VCC_PIN));
 #endif
 }
 
@@ -137,6 +183,77 @@ void long_press() {
 
   }
 #endif
+}
+
+void run_once() {
+#ifdef USB_LOW_RESET
+  if (!EEPROM_INITIAL_WRITE) {
+    pinMode(USB_LOW_RESET, INPUT_PULLDOWN); // use internal pulldown on this boot only
+    uint32_t usb_voltage_check = digitalRead(USB_LOW_RESET); //check voltage on thermistor pad on BQ24193
+    if (usb_voltage_check == HIGH) {
+      delayMicroseconds(2000000); //delay so I can activate bootloader mode to pull UF2 without Eeprom data
+      USB_STRAP_TEST = 1; EEPROM_USB_REBOOT_STRAP.write(USB_STRAP_TEST); //strap is fitted. Lets store to flash
+      EEPROM_INITIAL_WRITE = 1; EEPROM_EMPTY.write(EEPROM_INITIAL_WRITE); // run-once complete. Store to flash to say it has ran
+    } else {
+      delayMicroseconds(2000000);
+      USB_STRAP_TEST = 0; EEPROM_USB_REBOOT_STRAP.write(USB_STRAP_TEST); //strap is not fitted. Lets store to flash
+      EEPROM_INITIAL_WRITE = 1; EEPROM_EMPTY.write(EEPROM_INITIAL_WRITE); // run-once complete. Store to flash to say it has ran
+    }
+    confirm_led(15);
+    NVIC_SystemReset(); //restart to reflect changes
+  }
+#endif
+}
+
+void setinterrupts() {
+#ifdef WAKEUP_PIN_RISING
+  attachInterrupt(WAKEUP_PIN_RISING, wakeup, RISING);
+#endif
+#ifdef VOLUP_STRAP_PIN
+  attachInterrupt(VOLUP_STRAP_PIN, long_press, FALLING);
+#endif
+#ifdef MODE_CHANGE_PIN
+  attachInterrupt(MODE_CHANGE_PIN, mode_change, FALLING);
+#endif
+#ifdef PAYLOAD_INCREASE_PIN
+  attachInterrupt(PAYLOAD_INCREASE_PIN, increase_payload, FALLING);
+#endif
+#ifdef USB_LOW_RESET
+  if (USB_STRAP_TEST == 1) {
+    attachInterrupt(USB_LOW_RESET, wakeup_usb, CHANGE);
+  }
+#endif
+  EIC->WAKEUP.vec.WAKEUPEN |= (0 << 6);
+}
+
+void firstboot() {
+  if (!UNWRITTEN_PAYLOAD_NUMBER) {
+    UNWRITTEN_PAYLOAD_NUMBER = 1;
+    WRITTEN_PAYLOAD_NUMBER = 1;
+  }
+  if (!WRITTEN_MODE_NUMBER) {
+    WRITTEN_MODE_NUMBER = DEFAULT_MODE;
+    UNWRITTEN_MODE_NUMBER = DEFAULT_MODE;
+  }
+  if (!STORED_AUTOINCREASE_PAYLOAD_FLAG) {
+    STORED_AUTOINCREASE_PAYLOAD_FLAG = 0;
+    CHANGE_STORED_AUTOINCREASE_PAYLOAD_FLAG = 0;
+  }
+}
+
+void writetoflash() {
+  if (WRITTEN_PAYLOAD_NUMBER != UNWRITTEN_PAYLOAD_NUMBER) {
+    EEPROM_PAYLOAD_NUMBER.write(UNWRITTEN_PAYLOAD_NUMBER);
+  }
+  WRITTEN_PAYLOAD_NUMBER = UNWRITTEN_PAYLOAD_NUMBER;
+  UNWRITTEN_PAYLOAD_NUMBER = WRITTEN_PAYLOAD_NUMBER;
+
+  if (WRITTEN_MODE_NUMBER != UNWRITTEN_MODE_NUMBER) {
+    EEPROM_MODE_NUMBER.write(UNWRITTEN_MODE_NUMBER);
+  }
+  WRITTEN_MODE_NUMBER = UNWRITTEN_MODE_NUMBER;
+  UNWRITTEN_MODE_NUMBER = WRITTEN_MODE_NUMBER;
+  return;
 }
 
 void cycle_payloads() {
@@ -241,32 +358,14 @@ void pauseVol_mode(int pausetime) {
   #endif
 }
 
-void run_once() {
-#ifdef USB_LOW_RESET
-  if (!EEPROM_INITIAL_WRITE) {
-    pinMode(USB_LOW_RESET, INPUT_PULLDOWN); // use internal pulldown on this boot only
-    uint32_t usb_voltage_check = digitalRead(USB_LOW_RESET); //check voltage on thermistor pad on BQ24193
-    if (usb_voltage_check == HIGH) {
-      delayMicroseconds(2000000); //delay so I can activate bootloader mode to pull UF2 without Eeprom data
-      USB_STRAP_TEST = 1; EEPROM_USB_REBOOT_STRAP.write(USB_STRAP_TEST); //strap is fitted. Lets store to flash
-      EEPROM_INITIAL_WRITE = 1; EEPROM_EMPTY.write(EEPROM_INITIAL_WRITE); // run-once complete. Store to flash to say it has ran
-    } else {
-      delayMicroseconds(2000000);
-      USB_STRAP_TEST = 0; EEPROM_USB_REBOOT_STRAP.write(USB_STRAP_TEST); //strap is not fitted. Lets store to flash
-      EEPROM_INITIAL_WRITE = 1; EEPROM_EMPTY.write(EEPROM_INITIAL_WRITE); // run-once complete. Store to flash to say it has ran
-    }
-    confirm_led(15);
-    NVIC_SystemReset(); //restart to reflect changes
-  }
-#endif
-}
+
 
 void mode_change() {
   if (MODESWITCH_ENABLED == 1) {
     ++UNWRITTEN_MODE_NUMBER;
     confirm_led(10);
     mode_check();
-    mode_payload_blink_led();
+    mode_blink_led();
     if (UNWRITTEN_MODE_NUMBER == 2 || UNWRITTEN_MODE_NUMBER == 4) {
       UNWRITTEN_PAYLOAD_NUMBER = 0;
     } else UNWRITTEN_PAYLOAD_NUMBER = 1;
@@ -275,84 +374,9 @@ void mode_change() {
   } else wakeup();
 }
 
-void normalstraps() {
-  #ifdef DRAGONINJECTOR
-  pinMode (VOLUP_STRAP_PIN, OUTPUT);
-  digitalWrite (VOLUP_STRAP_PIN, LOW);
-  delayMicroseconds (10);
-  pinMode (VOLUP_STRAP_PIN, INPUT_PULLUP);
-  if (digitalRead(VOLUP_STRAP_PIN) == LOW) {
-    long_press();
-  }
-#endif
-#ifdef JOYCON_STRAP_PIN
-  pinMode(JOYCON_STRAP_PIN, INPUT);
-#endif
-#ifdef VOLUP_STRAP_PIN
-  pinMode(VOLUP_STRAP_PIN, INPUT_PULLUP);
-#endif
-#ifdef WAKEUP_PIN_RISING
-  pinMode(WAKEUP_PIN_RISING, INPUT);
-#endif
-#ifdef MODE_CHANGE_PIN
-  pinMode(MODE_CHANGE_PIN, INPUT_PULLUP);
-#endif
-#ifdef PAYLOAD_INCREASE_PIN
-  pinMode(PAYLOAD_INCREASE_PIN, INPUT_PULLUP);
-#endif
-#ifdef USB_LOW_RESET
-  pinMode(USB_LOW_RESET, INPUT);
-#endif
 
-#ifdef RCMX86
-  pinMode(DCDC_EN_PIN, OUTPUT);
-  digitalWrite(DCDC_EN_PIN, HIGH);
-  pinMode(USBCC_PIN, INPUT);
-  pinMode(USB_VCC_PIN, INPUT_PULLDOWN);
-  pinMode(ONBOARD_LED, OUTPUT);
 
-  digitalWrite(ONBOARD_LED, LOW);
-  digitalWrite(ONBOARD_LED, HIGH); delay(30);
-  digitalWrite(ONBOARD_LED, LOW);
-  /*
-    delay(300);
-  */
-  while (digitalRead(USB_VCC_PIN));
-  delay(30);//delay to ready pull out
-  while (digitalRead(USB_VCC_PIN));
-#endif
-}
 
-void firstboot() {
-
-  if (!UNWRITTEN_PAYLOAD_NUMBER) {
-    UNWRITTEN_PAYLOAD_NUMBER = 1;
-    WRITTEN_PAYLOAD_NUMBER = 1;
-  }
-  if (!WRITTEN_MODE_NUMBER) {
-    WRITTEN_MODE_NUMBER = DEFAULT_MODE;
-    UNWRITTEN_MODE_NUMBER = DEFAULT_MODE;
-  }
-  if (!STORED_AUTOINCREASE_PAYLOAD_FLAG) {
-    STORED_AUTOINCREASE_PAYLOAD_FLAG = 0;
-    CHANGE_STORED_AUTOINCREASE_PAYLOAD_FLAG = 0;
-  }
-}
-
-void writetoflash() {
-  if (WRITTEN_PAYLOAD_NUMBER != UNWRITTEN_PAYLOAD_NUMBER) {
-    EEPROM_PAYLOAD_NUMBER.write(UNWRITTEN_PAYLOAD_NUMBER);
-  }
-  WRITTEN_PAYLOAD_NUMBER = UNWRITTEN_PAYLOAD_NUMBER;
-  UNWRITTEN_PAYLOAD_NUMBER = WRITTEN_PAYLOAD_NUMBER;
-
-  if (WRITTEN_MODE_NUMBER != UNWRITTEN_MODE_NUMBER) {
-    EEPROM_MODE_NUMBER.write(UNWRITTEN_MODE_NUMBER);
-  }
-  WRITTEN_MODE_NUMBER = UNWRITTEN_MODE_NUMBER;
-  UNWRITTEN_MODE_NUMBER = WRITTEN_MODE_NUMBER;
-  return;
-}
 
 void setLedColor(const char color[]) {
 #ifdef DOTSTAR_ENABLED
@@ -499,7 +523,7 @@ void payload_blink_led() {
   delayMicroseconds(PAYLOAD_FLASH_LED_OFF_TIME_SECONDS * 1000000);
 }
 
-void mode_payload_blink_led() {
+void mode_blink_led() {
   #ifdef ONBOARD_LED
   pinMode(ONBOARD_LED, OUTPUT);
   #endif
@@ -561,22 +585,6 @@ void increase_payload() {
   return;
 }
 
-void increase_payload_automatic() {
-  if (AUTO_INCREASE_PAYLOAD_on == 1) {
-    if (STORED_AUTOINCREASE_PAYLOAD_FLAG == 1) {
-      ++UNWRITTEN_PAYLOAD_NUMBER;
-    }
-    if (UNWRITTEN_PAYLOAD_NUMBER > AMOUNT_OF_PAYLOADS) {
-      UNWRITTEN_PAYLOAD_NUMBER = 1;
-    }
-  }
-  writetoflash();
-}
-
-void decrease_payload() {
-
-}
-
 void sleep(int errorCode) {
   // Turn off all LEDs and go to sleep. To launch another payload, press the reset button on the device.
   //delay(100);
@@ -606,28 +614,18 @@ void sleep(int errorCode) {
   standby();
 }
 
-void setinterrupts() {
-#ifdef WAKEUP_PIN_RISING
-  attachInterrupt(WAKEUP_PIN_RISING, wakeup, RISING);
-#endif
-#ifdef VOLUP_STRAP_PIN
-  attachInterrupt(VOLUP_STRAP_PIN, long_press, FALLING);
-#endif
-#ifdef MODE_CHANGE_PIN
-  attachInterrupt(MODE_CHANGE_PIN, mode_change, FALLING);
-#endif
-#ifdef PAYLOAD_INCREASE_PIN
-  attachInterrupt(PAYLOAD_INCREASE_PIN, increase_payload, FALLING);
-#endif
-#ifdef USB_LOW_RESET
-  if (USB_STRAP_TEST == 1) {
-    attachInterrupt(USB_LOW_RESET, wakeup_usb, CHANGE);
-  }
-#endif
-  EIC->WAKEUP.vec.WAKEUPEN |= (0 << 6);
-}
+
 
 void lookfortegra() {
+  if (AUTO_INCREASE_PAYLOAD_on == 1) {
+    if (STORED_AUTOINCREASE_PAYLOAD_FLAG == 1) {
+      ++UNWRITTEN_PAYLOAD_NUMBER;
+    }
+    if (UNWRITTEN_PAYLOAD_NUMBER > AMOUNT_OF_PAYLOADS) {
+      UNWRITTEN_PAYLOAD_NUMBER = 1;
+    }
+  }
+  writetoflash();
 #ifdef DOTSTAR_ENABLED
   strip.begin();
 #endif
@@ -734,7 +732,6 @@ void setup()
   setinterrupts();
   firstboot(); //get flash memory status. If invalid, make valid.
   mode_check();
-  increase_payload_automatic(); //if autoincrease is enabled, payload counter will increase just before entering standby
   lookfortegra();
 }
 

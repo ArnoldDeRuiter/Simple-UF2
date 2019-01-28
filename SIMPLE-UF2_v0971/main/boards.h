@@ -129,8 +129,8 @@
 #define REDLED 7
 #define GREENLED 8
 #define BLUELED 2
-#define GOODBATT 955
-#define FLATBATT 880
+#define GOODBATT 900 //just as example
+#define FLATBATT 100
 #define MODE_CHANGE_PIN 4
 //#define ONBOARD_LED 13
 
