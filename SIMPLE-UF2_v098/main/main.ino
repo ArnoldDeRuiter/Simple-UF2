@@ -12,18 +12,18 @@
 //#define DONGLE // Looks for RCM for 20 seconds. Change in BOARDS.H
 ///////////////////////////////////////////////////////////////////CHANGE THIS TO YOUR LIKING!!!
 #define DEFAULT_MODE 1
-#define MODES_AVAILABLE 3
+#define MODES_AVAILABLE 5
 #define BLINK_PAYLOAD_BEFORE_SEARCH 0
 #define BLINK_PAYLOAD_AFTER_SEARCH 1
 
 //////////////////////////////////////////////////////////////////////////////////////////BOARDS
 // uncomment your chip and comment the others. Will build!!!
-#define TRINKET_REBUG
+//#define TRINKET_REBUG
 //#define TRINKETMETHOD3
 //#define TRINKETLEGACY3
 //#define GEMMA
 //#define ITSYBITSY
-//#define FEATHER
+#define FEATHER
 //#define RCMX86_INTERNAL
 //#define EXEN_MINI **currently incomplete
 //#define RCMX86
@@ -67,8 +67,11 @@ uint32_t SELECTED;
 uint32_t CURRENT_FLASH;
 unsigned long battvalue;
 unsigned long i;
-unsigned long MASTER_VOLUP_TIMER = 5000;
-unsigned long LONG_PRESS_TRIGGER = 5000;
+unsigned long MASTER_VOLUP_TIMER = 12000;//master timer
+unsigned long FULL_RESET_TRIGGER = 12000;//15 seconds long press
+unsigned long LONG_PRESS_TRIGGER1 = 3000;//3 seconds long press
+unsigned long LONG_PRESS_TRIGGER2 = 6000;//5 seconds long press
+unsigned long LONG_PRESS_TRIGGER3 = 9000;//10 seconds lng press
 unsigned long VOL_TICK_TIMER = 0;
 bool flatbatt = false;
 bool hekate; bool argon;
@@ -118,24 +121,96 @@ void battery_check() {
 
 void long_press() {
 #ifdef VOLUP_STRAP_PIN
+bool longpress1 = false; bool longpress2 = false; bool longpress3 = false;
   while (VOL_TICK_TIMER < MASTER_VOLUP_TIMER) {
     VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
     if (VOLUP_HELD == LOW) {
-      #ifdef DRAGONINJECTOR
-      digitalWrite(BLUELED, LOW);
-      #endif
+      if (longpress1 == false && longpress2 == false && longpress3 == false){
+      setLedColor ("blue");
+      }
+      if (longpress1 == true && longpress2 == false && longpress3 == false){
+      setLedColor ("red");
+      }
+      if (longpress1 == true && longpress2 == true && longpress3 == false){
+      setLedColor ("green");
+      }
+      if (longpress1 == true && longpress2 == true && longpress3 == true){
+      setLedColor ("white");
+      }
       ++VOL_TICK_TIMER;
       delayMicroseconds(1000);
     } else {
       VOL_TICK_TIMER = 0;
+      all_leds_off();
       return;
     }
-    if (VOL_TICK_TIMER == LONG_PRESS_TRIGGER) {
+    if (VOL_TICK_TIMER == LONG_PRESS_TRIGGER1 && longpress1 == false) {
       //VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
-      confirm_led(10);
+      confirm_led(20);
+      VOL_TICK_TIMER = VOL_TICK_TIMER + (1000);//align to seconds to keep timing
+      VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
+      if (VOLUP_HELD != LOW){
+      VOL_TICK_TIMER = 0;
+      longpress1 = false; longpress2 = false;
       cycle_payloads();
+      } else {
+        longpress1 = true; longpress2 = false;
+      }
     }
-
+    if (VOL_TICK_TIMER == LONG_PRESS_TRIGGER2 && longpress2 == false) {
+      //VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
+      confirm_led(20);
+      VOL_TICK_TIMER = VOL_TICK_TIMER + (1000);//align to seconds to keep timing
+      VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
+      if (VOLUP_HELD != LOW){
+      VOL_TICK_TIMER = 0;
+      longpress1 = false; longpress2 = false;
+      cycle_modes();
+        return;
+      } else {
+        longpress2 = true; longpress3 = false;
+      }
+    }
+    if (VOL_TICK_TIMER == LONG_PRESS_TRIGGER3 && longpress3 == false) {
+      //VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
+      confirm_led(20);
+      VOL_TICK_TIMER = VOL_TICK_TIMER + (1000);//align to seconds to keep timing
+      VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
+      if (VOLUP_HELD != LOW){
+      VOL_TICK_TIMER = 0;
+      longpress1 = false; longpress2 = false;
+      UNWRITTEN_MODE_NUMBER = DEFAULT_MODE;
+      UNWRITTEN_PAYLOAD_NUMBER = 1;
+      writetoflash();
+      all_leds_off();
+      NVIC_SystemReset();
+      } else {
+        longpress3 = true;
+      }
+    }
+    if (VOL_TICK_TIMER == FULL_RESET_TRIGGER && longpress1 == true && longpress2 == true && longpress3 == true) {
+      //VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
+      confirm_led(20);
+      VOLUP_HELD = digitalRead(VOLUP_STRAP_PIN);
+      if (VOLUP_HELD != LOW){
+        VOL_TICK_TIMER = 0;
+        confirm_led(40);
+        EEPROM_INITIAL_WRITE = !EEPROM_INITIAL_WRITE;
+        UNWRITTEN_MODE_NUMBER = !DEFAULT_MODE;
+        UNWRITTEN_PAYLOAD_NUMBER = !UNWRITTEN_PAYLOAD_NUMBER;
+        USB_STRAP_TEST = !USB_STRAP_TEST;
+        EEPROM_EMPTY.write(EEPROM_INITIAL_WRITE);
+        EEPROM_USB_REBOOT_STRAP.write(USB_STRAP_TEST);
+        writetoflash();
+        all_leds_off();
+        NVIC_SystemReset();
+        return;
+      //cycle_payloads();
+      } else {
+        setLedColor("red");
+        NVIC_SystemReset();   
+      }
+    }
   }
 #endif
 }
@@ -162,7 +237,8 @@ void cycle_payloads() {
     pauseVol_payload(100);
   }
   confirm_led(10);
-  cycle_modes();
+  VOL_TICK_TIMER = 0;
+  return;
 }
 
 void cycle_modes() {
@@ -209,9 +285,9 @@ void pauseVol_payload(int pausetime) {
       if (SELECTED != LOW) {
         NVIC_SystemReset();
       } else {
-        confirm_led(10);
+        confirm_led(20);
         delayMicroseconds(1000000);
-        cycle_modes();
+        return;
       }
     } else {
       delayMicroseconds(10000);
@@ -231,7 +307,7 @@ void pauseVol_mode(int pausetime) {
     if (SELECTED == LOW) {
       UNWRITTEN_MODE_NUMBER = INDICATED_ITEM + 1;
       writetoflash();
-      confirm_led(10);
+      confirm_led(20);
       NVIC_SystemReset();
     } else {
       delayMicroseconds(10000);
@@ -348,6 +424,8 @@ void writetoflash() {
   UNWRITTEN_PAYLOAD_NUMBER = WRITTEN_PAYLOAD_NUMBER;
 
   if (WRITTEN_MODE_NUMBER != UNWRITTEN_MODE_NUMBER) {
+    UNWRITTEN_PAYLOAD_NUMBER = 1;
+    EEPROM_PAYLOAD_NUMBER.write(UNWRITTEN_PAYLOAD_NUMBER);
     EEPROM_MODE_NUMBER.write(UNWRITTEN_MODE_NUMBER);
   }
   WRITTEN_MODE_NUMBER = UNWRITTEN_MODE_NUMBER;
@@ -532,18 +610,25 @@ void confirm_led(int confirmledlength) {
     #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, LOW);
     #endif
-    delayMicroseconds(30000);
+    delayMicroseconds(25000);
     setLedColor("white");
     #ifdef ONBOARD_LED
     digitalWrite(ONBOARD_LED, HIGH);
     #endif
-    delayMicroseconds(30000);
+    delayMicroseconds(25000);
   }
   setLedColor("black");
   #ifdef ONBOARD_LED
   digitalWrite(ONBOARD_LED, LOW);
   #endif
-  delayMicroseconds(PAYLOAD_FLASH_LED_OFF_TIME_SECONDS * 1000000);
+  //.delayMicroseconds(PAYLOAD_FLASH_LED_OFF_TIME_SECONDS * 1000000);
+}
+
+void all_leds_off(){
+  #ifdef ONBOARD_LED
+  digitalWrite(ONBOARD_LED, LOW);
+  #endif
+  setLedColor("black");  
 }
 //choose and flash LED
 void increase_payload() {
